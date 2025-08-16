@@ -208,24 +208,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (userId === currentUser.uid) throw new Error("Cannot follow yourself");
     
     try {
-      // Add to current user's following
+      // First, check if already following to avoid redundant operations
       const followingRef = ref(db, `users/${currentUser.uid}/following/${userId}`);
+      const followingSnapshot = await get(followingRef);
+      
+      if (followingSnapshot.exists() && followingSnapshot.val() === true) {
+        console.log("Already following this user");
+        return; // Already following, no need to proceed
+      }
+
+      // Add to current user's following
       await set(followingRef, true);
       
       // Add to target user's followers
       const followerRef = ref(db, `users/${userId}/followers/${currentUser.uid}`);
       await set(followerRef, true);
       
-      // Create notification for target user
-      const notificationData = {
-        type: 'follow',
-        senderId: currentUser.uid,
-        timestamp: new Date().toISOString(),
-        read: false
-      };
-      
-      const notificationRef = ref(db, `notifications/${userId}/${Date.now()}`);
-      await set(notificationRef, notificationData);
+      // Create notification for target user as a separate operation
+      try {
+        const { createNotification } = await import('@/lib/notifications');
+        await createNotification(userId, 'follow', currentUser.uid);
+      } catch (notificationError) {
+        // Don't fail the follow operation if notification fails
+        console.warn("Follow notification failed, but follow was successful:", notificationError);
+      }
       
       // Update local user data
       await refreshUserData();
@@ -240,8 +246,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!currentUser) throw new Error("No authenticated user");
     
     try {
-      // Remove from current user's following
+      // First, check if actually following to avoid redundant operations
       const followingRef = ref(db, `users/${currentUser.uid}/following/${userId}`);
+      const followingSnapshot = await get(followingRef);
+      
+      if (!followingSnapshot.exists()) {
+        console.log("Not following this user");
+        return; // Not following, no need to proceed
+      }
+      
+      // Remove from current user's following
       await set(followingRef, null);
       
       // Remove from target user's followers

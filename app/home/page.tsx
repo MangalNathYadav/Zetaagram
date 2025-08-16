@@ -110,7 +110,7 @@ export default function HomePage() {
 
   return (
     <AppLayout hideHeader={true}>
-      <div className="py-4">
+      <div className="py-4 max-w-2xl mx-auto lg:mr-80">
         {/* Stories */}
         <div className="mb-6">
           <div className="flex overflow-x-auto pb-2 hide-scrollbar">
@@ -130,7 +130,7 @@ export default function HomePage() {
         {/* Create post */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 mb-6">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 flex items-center justify-center text-white">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 flex items-center justify-center text-white overflow-hidden">
               {currentUser.photoURL ? (
                 <img 
                   src={currentUser.photoURL} 
@@ -195,10 +195,10 @@ export default function HomePage() {
         )}
 
         {/* User profile section (visible on desktop) */}
-        <div className="hidden md:block fixed top-24 right-8 w-64 space-y-4">
+        <div className="hidden lg:block fixed top-24 right-8 w-64 space-y-4">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
             <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 flex items-center justify-center text-white">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-400 to-purple-500 flex items-center justify-center text-white overflow-hidden">
                 {currentUser.photoURL ? (
                   <img 
                     src={currentUser.photoURL} 

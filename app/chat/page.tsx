@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Send, ArrowLeft, Paperclip, User } from "lucide-react";
+import { Search, Send, ArrowLeft, Paperclip, User, MessageCircle, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { auth, db, storage } from "@/lib/firebase";
 import { 
@@ -16,8 +16,12 @@ import {
   set, 
   push, 
   remove, 
-  onValue, 
-  serverTimestamp as firebaseServerTimestamp 
+  onValue,
+  query,
+  orderByChild,
+  update,
+  serverTimestamp as firebaseServerTimestamp,
+  runTransaction 
 } from "firebase/database";
 import { 
   ref as storageRef, 
@@ -64,8 +68,10 @@ export default function ChatPage() {
   const [newMessage, setNewMessage] = useState("");
   const [chatUsers, setChatUsers] = useState<Record<string, User>>({});
   const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -85,113 +91,172 @@ export default function ChatPage() {
   useEffect(() => {
     if (!currentUser?.uid) return;
     
+    setLoading(true);
+    setError(null);
     const userChatsRef = ref(db, 'userChats');
     
-    const unsubscribe = onValue(userChatsRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setChats([]);
-        setLoading(false);
-        return;
-      }
-
-      // Get user details for all participants
-      const userDetails: Record<string, User> = {};
-      const usersPromises: Promise<void>[] = [];
-
-      Object.entries(snapshot.val()).forEach((entry) => {
-        const [chatId, rawChatData] = entry;
-        const chatData = rawChatData as Record<string, unknown>;
-        const participants = chatData.participants as Record<string, boolean> || {};
-        Object.keys(participants).forEach((userId) => {
-          if (userId !== currentUser.uid && !userDetails[userId]) {
-            const userPromise = get(ref(db, `users/${userId}`))
-              .then((userSnap) => {
-                if (userSnap.exists()) {
-                  userDetails[userId] = { uid: userId, ...userSnap.val() as Omit<User, 'uid'> };
-                }
-              })
-              .catch(console.error);
-            
-            usersPromises.push(userPromise);
+    let unsubscribe: () => void;
+    
+    try {
+      unsubscribe = onValue(userChatsRef, 
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            setChats([]);
+            setLoading(false);
+            return;
           }
-        });
-      });
 
-      // Once we have all user details, we can render the chats
-      Promise.all(usersPromises).then(() => {
-        const userChats: Chat[] = [];
-        
-        Object.entries(snapshot.val()).forEach((entry) => {
-          const [chatId, rawChatData] = entry;
-          const chatData = rawChatData as Record<string, unknown>;
-          const participants = chatData.participants as Record<string, boolean> || {};
-          
-          // Only include chats where current user is a participant
-          if (participants[currentUser.uid]) {
-            const otherUserId = Object.keys(participants).find(id => id !== currentUser.uid);
+          // Get user details for all participants
+          const userDetails: Record<string, User> = {};
+          const usersPromises: Promise<void>[] = [];
+
+          Object.entries(snapshot.val()).forEach((entry) => {
+            const [chatId, rawChatData] = entry;
+            const chatData = rawChatData as Record<string, unknown>;
+            const participants = chatData.participants as Record<string, boolean> || {};
             
-            if (otherUserId && userDetails[otherUserId]) {
-              userChats.push({
-                id: chatId,
-                participants: participants,
-                lastMessage: chatData.lastMessage as string,
-                lastTimestamp: chatData.lastTimestamp as number,
-                unreadCount: chatData.unreadCount as Record<string, number>
+            // Only process chats where current user is a participant
+            if (participants && participants[currentUser.uid]) {
+              Object.keys(participants).forEach((userId) => {
+                if (userId !== currentUser.uid && !userDetails[userId]) {
+                  const userPromise = get(ref(db, `users/${userId}`))
+                    .then((userSnap) => {
+                      if (userSnap.exists()) {
+                        userDetails[userId] = { uid: userId, ...userSnap.val() as Omit<User, 'uid'> };
+                      }
+                    })
+                    .catch(error => {
+                      console.error(`Error fetching user ${userId}:`, error);
+                    });
+                  
+                  usersPromises.push(userPromise);
+                }
               });
             }
-          }
-        });
-        
-        // Sort chats by last message timestamp
-        userChats.sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
-        
-        setChats(userChats);
-        setChatUsers(userDetails);
-        setLoading(false);
-      });
-    });
+          });
+
+          // Once we have all user details, we can render the chats
+          Promise.all(usersPromises)
+            .then(() => {
+              const userChats: Chat[] = [];
+              
+              Object.entries(snapshot.val()).forEach((entry) => {
+                const [chatId, rawChatData] = entry;
+                const chatData = rawChatData as Record<string, unknown>;
+                const participants = chatData.participants as Record<string, boolean> || {};
+                
+                // Only include chats where current user is a participant
+                if (participants && participants[currentUser.uid]) {
+                  const otherUserId = Object.keys(participants).find(id => id !== currentUser.uid);
+                  
+                  // Include even if we don't have other user details (could be a new user)
+                  userChats.push({
+                    id: chatId,
+                    participants: participants,
+                    lastMessage: chatData.lastMessage as string,
+                    lastTimestamp: chatData.lastTimestamp as number,
+                    unreadCount: chatData.unreadCount as Record<string, number>
+                  });
+                }
+              });
+              
+              // Sort chats by last message timestamp
+              userChats.sort((a, b) => (b.lastTimestamp || 0) - (a.lastTimestamp || 0));
+              
+              setChats(userChats);
+              setChatUsers(userDetails);
+              setLoading(false);
+            })
+            .catch(error => {
+              console.error("Error processing user data:", error);
+              setError("Failed to load chat users. Please refresh the page.");
+              setLoading(false);
+            });
+        }, 
+        (error) => {
+          console.error("Error loading chats:", error);
+          setError("Failed to load your chats. Please check your connection and try again.");
+          setLoading(false);
+        }
+      );
+    } catch (error) {
+      console.error("Error setting up chat listener:", error);
+      setError("Failed to connect to chat service. Please refresh the page.");
+      setLoading(false);
+      return () => {}; // Return empty function as fallback
+    }
     
-    return () => unsubscribe();
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [currentUser?.uid]);
 
   // Fetch messages when selecting a chat
   useEffect(() => {
     if (!selectedChat) return;
     
+    setLoading(true);
+    setError(null);
     const messagesRef = ref(db, `messages/${selectedChat}`);
     
-    const unsubscribe = onValue(messagesRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        setMessages([]);
-        return;
-      }
-      
-      const messagesData = snapshot.val();
+    try {
+      const unsubscribe = onValue(
+        messagesRef, 
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            setMessages([]);
+            setLoading(false);
+            return;
+          }
+          
+          const messagesData = snapshot.val();
 
-      const messagesList = Object.keys(messagesData).map((msgId) => ({
-        id: msgId,
-        ...messagesData[msgId]
-      })).sort((a, b) => a.timestamp - b.timestamp);
+          const messagesList = Object.keys(messagesData).map((msgId) => ({
+            id: msgId,
+            ...messagesData[msgId]
+          })).sort((a, b) => a.timestamp - b.timestamp);
 
-      setMessages(messagesList);
-      
-      // Mark messages as read
-      Object.entries(messagesData).forEach((entry) => {
-        const [msgId, rawMsgData] = entry;
-        const msgData = rawMsgData as Record<string, unknown>;
-        if (msgData.senderId !== currentUser.uid && (!msgData.read || !(msgData.read as Record<string, boolean>)[currentUser.uid])) {
-          set(ref(db, `messages/${selectedChat}/${msgId}/read/${currentUser.uid}`), true);
+          setMessages(messagesList);
+          setLoading(false);
+          
+          // Mark messages as read in a batch update
+          const updates: Record<string, any> = {};
+          
+          Object.entries(messagesData).forEach((entry) => {
+            const [msgId, rawMsgData] = entry;
+            const msgData = rawMsgData as Record<string, unknown>;
+            if (msgData.senderId !== currentUser.uid && (!msgData.read || !(msgData.read as Record<string, boolean>)[currentUser.uid])) {
+              updates[`messages/${selectedChat}/${msgId}/read/${currentUser.uid}`] = true;
+            }
+          });
+          
+          // Update unread count in the chat
+          updates[`userChats/${selectedChat}/unreadCount/${currentUser.uid}`] = 0;
+          
+          // Only update if there are changes to make
+          if (Object.keys(updates).length > 0) {
+            update(ref(db), updates).catch(error => {
+              console.error("Error marking messages as read:", error);
+            });
+          }
+
+          // Scroll to bottom when messages change
+          scrollToBottom();
+        },
+        (error) => {
+          console.error("Error fetching messages:", error);
+          setError("Couldn't load messages. Please check your connection.");
+          setLoading(false);
         }
-      });
-
-      // Update unread count in the chat
-      set(ref(db, `userChats/${selectedChat}/unreadCount/${currentUser.uid}`), 0);
-    });
-
-    // Scroll to bottom when messages change
-    scrollToBottom();
-    
-    return () => unsubscribe();
+      );
+      
+      return () => unsubscribe();
+    } catch (error) {
+      console.error("Error setting up messages listener:", error);
+      setError("Failed to connect to message service.");
+      setLoading(false);
+      return () => {}; // Return empty function as fallback
+    }
   }, [selectedChat, currentUser?.uid]);
   
   const scrollToBottom = () => {
@@ -204,71 +269,172 @@ export default function ChatPage() {
     if (!currentUser || !selectedChat || (!newMessage.trim() && !selectedFile)) return;
     
     try {
+      setError(null); // Clear any previous errors
       let imageUrl = "";
       
       // Upload image if selected
       if (selectedFile) {
-        setUploadingImage(true);
-        const imageRef = storageRef(storage, `chat_images/${selectedChat}/${Date.now()}_${selectedFile.name}`);
-        const snapshot = await uploadBytes(imageRef, selectedFile);
-        imageUrl = await getDownloadURL(snapshot.ref);
+        try {
+          setUploadingImage(true);
+          const imageRef = storageRef(storage, `chat_images/${selectedChat}/${Date.now()}_${selectedFile.name}`);
+          const snapshot = await uploadBytes(imageRef, selectedFile);
+          imageUrl = await getDownloadURL(snapshot.ref);
+          setSelectedFile(null);
+        } catch (uploadError) {
+          console.error("Error uploading image:", uploadError);
+          setError("Failed to upload image. Please try again.");
+          setUploadingImage(false);
+          return;
+        }
         setUploadingImage(false);
-        setSelectedFile(null);
       }
       
-      // Create new message
-      const newMessageRef = push(ref(db, `messages/${selectedChat}`));
-      
       // Get other user ID
-      const otherUserId = Object.keys(chats.find(chat => chat.id === selectedChat)?.participants || {})
+      const currentChat = chats.find(chat => chat.id === selectedChat);
+      if (!currentChat) {
+        setError("Chat not found. Please refresh the page.");
+        return;
+      }
+      
+      const otherUserId = Object.keys(currentChat.participants || {})
         .find(id => id !== currentUser.uid) || '';
       
-      // Set the message data
-      await set(newMessageRef, {
-        text: newMessage.trim(),
-        senderId: currentUser.uid,
-        timestamp: Date.now(),
-        ...(imageUrl ? { imageUrl } : {}),
-        read: {
-          [currentUser.uid]: true
+      if (!otherUserId) {
+        setError("Could not identify chat participant.");
+        return;
+      }
+      
+      try {
+        // Create new message
+        const newMessageRef = push(ref(db, `messages/${selectedChat}`));
+        const messageId = newMessageRef.key;
+        
+        if (!messageId) {
+          setError("Failed to generate message ID. Please try again.");
+          return;
         }
-      });
-      
-      // Update last message in chat
-      await set(ref(db, `userChats/${selectedChat}/lastMessage`), 
-        imageUrl ? "Sent an image" : newMessage.trim()
-      );
-      
-      // Update timestamp
-      await set(ref(db, `userChats/${selectedChat}/lastTimestamp`), Date.now());
-      
-      // Increment unread count for other user
-      const unreadCountRef = ref(db, `userChats/${selectedChat}/unreadCount/${otherUserId}`);
-      const unreadSnapshot = await get(unreadCountRef);
-      const currentCount = unreadSnapshot.exists() ? unreadSnapshot.val() : 0;
-      
-      await set(unreadCountRef, currentCount + 1);
-      
-      // Clear input
-      setNewMessage("");
-      scrollToBottom();
+        
+        // Prepare message data
+        const messageData = {
+          text: newMessage.trim() || "",
+          senderId: currentUser.uid,
+          timestamp: Date.now(),
+          ...(imageUrl ? { imageUrl } : {}),
+          read: {
+            [currentUser.uid]: true
+          }
+        };
+        
+        // Prepare chat updates
+        const chatUpdates = {
+          lastMessage: imageUrl ? "Sent an image" : newMessage.trim(),
+          lastTimestamp: Date.now(),
+        };
+        
+        // Use a multi-location update for better atomicity
+        const updates: Record<string, any> = {};
+        updates[`messages/${selectedChat}/${messageId}`] = messageData;
+        updates[`userChats/${selectedChat}/lastMessage`] = chatUpdates.lastMessage;
+        updates[`userChats/${selectedChat}/lastTimestamp`] = chatUpdates.lastTimestamp;
+        
+        // Increment unread count for other user
+        if (otherUserId) {
+          // Make sure the unreadCount node exists with a default value first
+          const unreadCountRef = ref(db, `userChats/${selectedChat}/unreadCount/${otherUserId}`);
+          const unreadSnapshot = await get(unreadCountRef);
+          const currentCount = unreadSnapshot.exists() ? unreadSnapshot.val() : 0;
+          
+          updates[`userChats/${selectedChat}/unreadCount/${otherUserId}`] = currentCount + 1;
+        }
+        
+        // Submit all updates in one operation
+        await update(ref(db), updates);
+        
+        // Clear input and scroll
+        setNewMessage("");
+        scrollToBottom();
+      } catch (messageError: any) {
+        console.error("Error sending message:", messageError);
+        
+        // More detailed error messages based on error code
+        if (messageError.code === "PERMISSION_DENIED") {
+          setError("You don't have permission to send messages in this chat.");
+        } else if (messageError.code === "NETWORK_ERROR") {
+          setError("Network error. Please check your connection and try again.");
+        } else {
+          setError("Failed to send message. Please try again.");
+        }
+      }
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error("Error in sendMessage:", error);
+      setError("An unexpected error occurred. Please try again.");
     }
   };
   
-  const searchUsers = async (query: string) => {
-    if (!query.trim()) {
+  const searchUsers = async (searchQuery: string) => {
+    if (!searchQuery.trim()) {
       setSearchResults([]);
       return;
     }
     
     try {
-      // Get all users
-      const usersRef = ref(db, 'users');
-      const snapshot = await get(usersRef);
+      let snapshot;
       
-      if (!snapshot.exists()) {
+      try {
+        // First try: Query with orderByChild on username
+        const usersQueryByUsername = query(
+          ref(db, 'users'), 
+          orderByChild('username')
+        );
+        snapshot = await get(usersQueryByUsername);
+      } catch (error) {
+        console.log("Username query failed, trying direct access:", error);
+        
+        try {
+          // Second try: Direct access to users node
+          snapshot = await get(ref(db, 'users'));
+        } catch (secondError) {
+          console.error("Both query methods failed:", secondError);
+          
+          // Final fallback: Access recent chats to find users
+          console.log("Using fallback: searching from existing chats");
+          const userChatsRef = ref(db, 'userChats');
+          snapshot = await get(userChatsRef);
+          
+          if (snapshot.exists()) {
+            // Extract user IDs from chats
+            const userIds = new Set<string>();
+            const chatsData = snapshot.val();
+            
+            Object.values(chatsData).forEach((chat: any) => {
+              if (chat?.participants) {
+                Object.keys(chat.participants).forEach(uid => {
+                  if (uid !== currentUser.uid) userIds.add(uid);
+                });
+              }
+            });
+            
+            // Get user details for each ID
+            const userResults = [];
+            for (const uid of userIds) {
+              const userRef = ref(db, `users/${uid}`);
+              const userSnapshot = await get(userRef);
+              if (userSnapshot.exists()) {
+                const userData = userSnapshot.val();
+                if (userData.username?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                    userData.displayName?.toLowerCase().includes(searchQuery.toLowerCase())) {
+                  userResults.push({ uid, ...userData });
+                }
+              }
+            }
+            
+            setSearchResults(userResults);
+            return;
+          }
+        }
+      }
+      
+      if (!snapshot || !snapshot.exists()) {
         setSearchResults([]);
         return;
       }
@@ -283,8 +449,8 @@ export default function ChatPage() {
           ...usersData[uid]
         }))
         .filter(user => 
-          user.username?.toLowerCase().includes(query.toLowerCase()) || 
-          user.displayName?.toLowerCase().includes(query.toLowerCase())
+          user.username?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+          user.displayName?.toLowerCase().includes(searchQuery.toLowerCase())
         );
       
       setSearchResults(filteredUsers);
@@ -297,44 +463,75 @@ export default function ChatPage() {
   const startChat = async (userId: string) => {
     if (!currentUser || !userId) return;
     
-    // Check if chat already exists
-    const userChatsRef = ref(db, 'userChats');
-    const snapshot = await get(userChatsRef);
-    
-    if (snapshot.exists()) {
-      const chatsData = snapshot.val();
+    try {
+      setError(null);
       
-      // Look for an existing chat between these two users
-      const existingChat = Object.entries(chatsData).find((entry) => {
-        const [_, rawChatData] = entry;
-        const chatData = rawChatData as Record<string, unknown>;
-        const participants = chatData.participants as Record<string, boolean> || {};
-        return Boolean(participants[currentUser.uid]) && Boolean(participants[userId]);
-      });
-
-      if (existingChat) {
-        setSelectedChat(existingChat[0]);
+      // First check if chat already exists between these users
+      const userChatsRef = ref(db, 'userChats');
+      let existingChatId = null;
+      
+      try {
+        const snapshot = await get(userChatsRef);
+        
+        if (snapshot.exists()) {
+          const chatsData = snapshot.val();
+          
+          // Find existing chat between these users
+          Object.entries(chatsData).forEach(([chatId, chatData]: [string, any]) => {
+            if (chatData.participants && 
+                chatData.participants[currentUser.uid] && 
+                chatData.participants[userId]) {
+              existingChatId = chatId;
+            }
+          });
+        }
+      } catch (error) {
+        console.error("Error checking existing chats:", error);
+        // Continue to create new chat even if checking fails
+      }
+      
+      // If chat exists, select it
+      if (existingChatId) {
+        setSelectedChat(existingChatId);
         setShowSearch(false);
         setSearchQuery("");
         return;
       }
+      
+      // Create a new chat
+      const newChatRef = push(userChatsRef);
+      const chatId = newChatRef.key;
+      
+      if (!chatId) {
+        setError("Failed to generate chat ID. Please try again.");
+        return;
+      }
+      
+      try {
+        // Build a minimal structure for the new chat
+        const updates: Record<string, any> = {};
+        
+        // Set up participants structure
+        updates[`userChats/${chatId}/participants/${currentUser.uid}`] = true;
+        updates[`userChats/${chatId}/participants/${userId}`] = true;
+        updates[`userChats/${chatId}/lastTimestamp`] = Date.now();
+        updates[`userChats/${chatId}/createdBy`] = currentUser.uid;
+        
+        // Apply all updates at once
+        await update(ref(db), updates);
+        
+        // Select the new chat
+        setSelectedChat(chatId);
+        setShowSearch(false);
+        setSearchQuery("");
+      } catch (error) {
+        console.error("Error creating chat:", error);
+        setError("Couldn't create chat. Please try again later.");
+      }
+    } catch (error) {
+      console.error("Unexpected error in startChat:", error);
+      setError("An unexpected error occurred. Please try again.");
     }
-    
-    // Create a new chat
-    const newChatRef = push(userChatsRef);
-    const chatId = newChatRef.key;
-    
-    await set(newChatRef, {
-      participants: {
-        [currentUser.uid]: true,
-        [userId]: true
-      },
-      lastTimestamp: Date.now()
-    });
-    
-    setSelectedChat(chatId);
-    setShowSearch(false);
-    setSearchQuery("");
   };
   
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -347,10 +544,16 @@ export default function ChatPage() {
     fileInputRef.current?.click();
   };
   
+  const resetError = () => {
+    setError(null);
+  };
+  
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      if (newMessage.trim() || selectedFile) {
+        sendMessage();
+      }
     }
   };
   
@@ -429,6 +632,20 @@ export default function ChatPage() {
                 <div className="flex justify-center items-center h-full">
                   <p>Loading chats...</p>
                 </div>
+              ) : error ? (
+                <div className="flex flex-col justify-center items-center h-full p-6">
+                  <div className="bg-red-100 dark:bg-red-900/30 p-4 rounded-full mb-4">
+                    <AlertCircle className="h-8 w-8 text-red-500 dark:text-red-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Error</h3>
+                  <p className="text-center text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+                  <button 
+                    onClick={() => setError(null)}
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               ) : chats.length > 0 ? (
                 chats.map((chat) => {
                   const otherUser = getOtherUserFromChat(chat);
@@ -476,9 +693,19 @@ export default function ChatPage() {
                 })
               ) : (
                 <div className="flex flex-col justify-center items-center h-full p-4 text-center">
-                  <p className="text-gray-500 mb-4">No messages yet</p>
-                  <Button onClick={() => setShowSearch(true)}>
-                    Start a conversation
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded-full p-6 mb-6">
+                    <MessageCircle className="h-12 w-12 text-blue-500" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">No conversations yet</h3>
+                  <p className="text-gray-500 mb-6 max-w-xs">
+                    Connect with friends and start a conversation to see your messages here
+                  </p>
+                  <Button 
+                    onClick={() => setShowSearch(true)}
+                    size="lg"
+                    className="bg-blue-500 hover:bg-blue-600"
+                  >
+                    Start a new chat
                   </Button>
                 </div>
               )}
@@ -529,7 +756,25 @@ export default function ChatPage() {
             
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.length > 0 ? (
+              {loadingMessages ? (
+                <div className="flex justify-center items-center h-full">
+                  <p>Loading messages...</p>
+                </div>
+              ) : error ? (
+                <div className="flex flex-col justify-center items-center h-full p-4 text-center">
+                  <div className="bg-red-100 dark:bg-red-900/30 p-4 rounded-full mb-4">
+                    <AlertCircle className="h-8 w-8 text-red-500 dark:text-red-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">Error</h3>
+                  <p className="text-center text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+                  <button 
+                    onClick={resetError}
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : messages.length > 0 ? (
                 messages.map((message) => {
                   const isCurrentUser = message.senderId === currentUser.uid;
                   return (
@@ -563,8 +808,14 @@ export default function ChatPage() {
                   );
                 })
               ) : (
-                <div className="flex justify-center items-center h-full">
-                  <p className="text-gray-500">Start a conversation</p>
+                <div className="flex flex-col justify-center items-center h-full text-center">
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded-full p-4 mb-4">
+                    <MessageCircle className="h-10 w-10 text-blue-500" />
+                  </div>
+                  <p className="text-lg font-medium mb-1">Start a conversation</p>
+                  <p className="text-gray-500 max-w-xs">
+                    Send a message to begin chatting with this person
+                  </p>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -627,8 +878,40 @@ export default function ChatPage() {
           </div>
         ) : (
           <div className="hidden md:flex flex-col justify-center items-center w-2/3 h-full p-4 text-center">
-            <p className="text-xl mb-2">Select a conversation</p>
-            <p className="text-gray-500">Choose a contact from the list to start chatting</p>
+            {error ? (
+              <div className="flex flex-col justify-center items-center">
+                <div className="bg-red-100 dark:bg-red-900/30 p-8 rounded-full mb-6">
+                  <AlertCircle className="h-16 w-16 text-red-500 dark:text-red-400" />
+                </div>
+                <h3 className="text-2xl font-bold mb-3">Something went wrong</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-4 max-w-md">
+                  {error}
+                </p>
+                <Button 
+                  onClick={resetError}
+                  className="mt-2 bg-blue-500 hover:bg-blue-600"
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="bg-gray-100 dark:bg-gray-800 rounded-full p-8 mb-6">
+                  <MessageCircle className="h-16 w-16 text-blue-500" />
+                </div>
+                <h3 className="text-2xl font-bold mb-3">Your messages</h3>
+                <p className="text-gray-500 mb-2 max-w-md">
+                  Select a conversation from the sidebar or start a new one
+                </p>
+                <Button 
+                  onClick={() => setShowSearch(true)} 
+                  className="mt-4 bg-blue-500 hover:bg-blue-600"
+                  size="lg"
+                >
+                  New message
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>

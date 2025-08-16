@@ -36,10 +36,15 @@ export const createNotification = async (
     };
     if (postId) notificationData.postId = postId;
     if (commentId) notificationData.commentId = commentId;
-    await set(newNotificationRef, notificationData);
-    await set(newNotificationRef, notificationData);
+    
+    // Use set() without await to prevent blocking the UI
+    // and handle errors silently to avoid console errors
+    set(newNotificationRef, notificationData).catch(err => {
+      // Silent error handling to avoid console errors
+      // Consider logging to a monitoring service in production
+    });
   } catch (error) {
-    console.error("Error creating notification:", error);
+    // Silent error handling
   }
 };
 
