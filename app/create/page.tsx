@@ -9,21 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { Image as ImageIcon, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { db } from "@/lib/firebase";
+import { ref, push, set, serverTimestamp } from "firebase/database";
 
-// This would be in a separate file in the real implementation
-const createPost = async (postData: {
-  userId: string;
-  username: string;
-  userImage: string;
-  caption: string;
-  imageBase64: string;
-}) => {
-  // Simulate API call to Firebase
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      console.log("Creating post with data:", postData);
-      resolve({ success: true, postId: "new-post-123" });
-    }, 2000);
+// Function to convert file to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
   });
 };
 
@@ -35,8 +30,16 @@ export default function CreatePostPage() {
   
   const [caption, setCaption] = useState("");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Redirect if not logged in
+  React.useEffect(() => {
+    if (!currentUser) {
+      router.push('/login');
+    }
+  }, [currentUser, router]);
 
   // Simulate upload progress
   React.useEffect(() => {
@@ -48,7 +51,7 @@ export default function CreatePostPage() {
     }
   }, [isLoading, uploadProgress]);
 
-  const handleImageSelect = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -61,15 +64,32 @@ export default function CreatePostPage() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setSelectedImage(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const base64String = await fileToBase64(file);
+      setSelectedImage(base64String);
+      setSelectedFile(file);
+    } catch (error) {
+      console.error("Error converting image to base64:", error);
+      toast({
+        title: "Error processing image",
+        description: "Please try a different image",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!currentUser) {
+      toast({
+        title: "Not logged in",
+        description: "Please sign in to create a post",
+        variant: "destructive",
+      });
+      router.push('/login');
+      return;
+    }
     
     if (!selectedImage) {
       toast({
@@ -93,14 +113,20 @@ export default function CreatePostPage() {
       setIsLoading(true);
       setUploadProgress(0);
       
-      // In a real app, this would call Firebase to create a post
-      const result = await createPost({
-        userId: currentUser?.uid || "anonymous",
-        username: currentUser?.displayName || "anonymous",
-        userImage: currentUser?.photoURL || "",
+      // Create a new post in Firebase RTDB
+      const postsRef = ref(db, 'posts');
+      const newPostRef = push(postsRef);
+      
+      const postData = {
+        uid: currentUser.uid,
+        username: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
+        userPhotoURL: currentUser.photoURL || '',
+        imageURL: selectedImage,
         caption,
-        imageBase64: selectedImage,
-      });
+        timestamp: Date.now(),
+      };
+      
+      await set(newPostRef, postData);
       
       setUploadProgress(100);
       
@@ -125,9 +151,25 @@ export default function CreatePostPage() {
     }
   };
 
+  if (!currentUser) {
+    return (
+      <AppLayout hideHeader>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold mb-2">Sign in required</h2>
+            <p className="text-gray-500 mb-4">Please sign in to create a post</p>
+            <Button onClick={() => router.push('/login')}>
+              Go to Login
+            </Button>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
-    <AppLayout>
-      <div className="max-w-lg mx-auto py-6">
+    <AppLayout hideHeader>
+      <div className="max-w-lg mx-auto py-6 px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -165,7 +207,10 @@ export default function CreatePostPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setSelectedImage(null)}
+                  onClick={() => {
+                    setSelectedImage(null);
+                    setSelectedFile(null);
+                  }}
                   className="absolute top-2 right-2 bg-gray-800/70 text-white p-1 rounded-full"
                 >
                   <X className="h-5 w-5" />
