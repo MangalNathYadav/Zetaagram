@@ -66,7 +66,7 @@ export default function HelpCenterPage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4, duration: 0.6 }}
         >
-          We're building a comprehensive help center to answer all your questions. In the meantime, feel free to contact us directly.
+          We&apos;re building a comprehensive help center to answer all your questions. In the meantime, feel free to contact us directly.
         </motion.p>
 
         <motion.div

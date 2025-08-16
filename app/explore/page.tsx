@@ -234,7 +234,7 @@ export default function ExplorePage() {
       {/* End of results message */}
       {!hasMore && posts.length > 0 && (
         <div className="py-8 text-center text-gray-500">
-          <p>You've seen all posts</p>
+          <p>You&apos;ve seen all posts</p>
         </div>
       )}
 

@@ -36,8 +36,32 @@ const itemVariants = {
 export default function HomePage() {
   const { currentUser, logout, showAuthToast } = useAuth();
   const router = useRouter();
-  const [stories, setStories] = useState<any[]>([]);
-  const [posts, setPosts] = useState<any[] | null>(null);
+  // Define proper types for stories and posts
+  interface Story {
+  id: string;
+  userId: string;
+  imageUrl: string;
+  createdAt: number;
+  username: string;
+  hasNewStory?: boolean;
+  }
+  
+  interface Post {
+  id: string;
+  userId: string;
+  username: string;
+  userImage?: string;
+  caption?: string;
+  timestamp: number;
+  text?: string;
+  imageUrl?: string;
+  createdAt: number;
+  likes?: Record<string, boolean>;
+  comments?: Record<string, unknown>;
+  }
+  
+  const [stories, setStories] = useState<Story[]>([]);
+  const [posts, setPosts] = useState<Post[] | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Redirect if not authenticated
@@ -121,7 +145,7 @@ export default function HomePage() {
               onClick={() => router.push('/create')}
               className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full py-2 px-4 text-left text-sm text-gray-500 dark:text-gray-400"
             >
-              Share what's on your mind...
+              Share what&apos;s on your mind...
             </button>
           </div>
         </div>
@@ -155,7 +179,16 @@ export default function HomePage() {
           >
             {posts?.map((post) => (
               <motion.div key={post.id} variants={itemVariants}>
-                <PostCard post={post} />
+                <PostCard post={{
+                  ...post,
+                  username: post.username || "",
+                  userImage: post.userImage || "",
+                  caption: post.caption || post.text || "",
+                  timestamp: String(post.timestamp || post.createdAt || Date.now()),
+                  imageUrl: post.imageUrl || "",
+                  likes: post.likes ? Object.keys(post.likes).length : 0,
+                  comments: post.comments ? Object.keys(post.comments).length : 0
+                }} />
               </motion.div>
             ))}
           </motion.div>

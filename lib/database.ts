@@ -3,6 +3,7 @@
 import { db } from './firebase';
 import { ref, push, set, get, update, remove, query, orderByChild, equalTo, limitToLast } from 'firebase/database';
 import { fileToBase64, optimizeImage } from './imageUtils';
+import { Post, Story, Comment } from './types';
 
 /**
  * Firebase Database Service for interacting with Realtime Database
@@ -71,7 +72,7 @@ export const fetchFeedPosts = async (userId: string, limit = 20) => {
     const userIds = [...Object.keys(followingList), userId];
     
     // Fetch posts for each user
-    const allPosts: any[] = [];
+    const allPosts: Post[] = [];
     
     for (const id of userIds) {
       const userPostsRef = ref(db, `users/${id}/posts`);
@@ -130,7 +131,7 @@ export const fetchStories = async (userId: string) => {
     const cutoffTime = new Date();
     cutoffTime.setHours(cutoffTime.getHours() - 24);
     
-    const allStories: any[] = [];
+    const allStories: Story[] = [];
     
     for (const id of userIds) {
       // Get user data
@@ -145,7 +146,8 @@ export const fetchStories = async (userId: string) => {
       
       // Filter for stories within the last 24 hours
       const recentStories = Object.entries(userStories)
-        .filter(([_, storyData]: [string, any]) => {
+        .filter(([_, rawStoryData]) => {
+          const storyData = rawStoryData as { timestamp: string };
           const storyTime = new Date(storyData.timestamp);
           return storyTime > cutoffTime;
         });
@@ -153,8 +155,10 @@ export const fetchStories = async (userId: string) => {
       if (recentStories.length > 0) {
         allStories.push({
           id,
+          userId: id,
           username: userData.username || 'Unknown',
           imageUrl: userData.photoURL || null,
+          createdAt: Date.now(),
           hasNewStory: true
         });
       }
@@ -316,7 +320,8 @@ export const fetchComments = async (postId: string) => {
     const commentsData = commentsSnapshot.val() || {};
     
     const comments = await Promise.all(
-      Object.entries(commentsData).map(async ([commentId, commentData]: [string, any]) => {
+      Object.entries(commentsData).map(async ([commentId, rawCommentData]) => {
+        const commentData = rawCommentData as { text: string; timestamp: string | number; userId: string };
         // Get user data for the comment
         const userRef = ref(db, `users/${commentData.userId}`);
         const userSnapshot = await get(userRef);
@@ -335,7 +340,8 @@ export const fetchComments = async (postId: string) => {
     
     // Sort comments by timestamp (newest first)
     return comments.sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      new Date(typeof b.timestamp === 'string' || typeof b.timestamp === 'number' ? b.timestamp : Date.now()).getTime() -
+      new Date(typeof a.timestamp === 'string' || typeof a.timestamp === 'number' ? a.timestamp : Date.now()).getTime()
     );
   } catch (error) {
     console.error("Error fetching comments:", error);

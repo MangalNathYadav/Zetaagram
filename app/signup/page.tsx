@@ -254,22 +254,22 @@ export default function SignupPage() {
       
       showAuthToast("Account created successfully!", "success");
       router.push("/home");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Registration error:", error);
-      
       // Handle different Firebase auth errors
-      if (error.code === "auth/email-already-in-use") {
+      const firebaseError = typeof error === 'object' && error !== null ? error as { code?: string; message?: string } : {};
+      if (firebaseError.code === "auth/email-already-in-use") {
         setErrors({ email: "Email is already in use" });
         setStep(1); // Go back to first step to fix email
-      } else if (error.code === "auth/invalid-email") {
+      } else if (firebaseError.code === "auth/invalid-email") {
         setErrors({ email: "Invalid email format" });
         setStep(1);
-      } else if (error.code === "auth/weak-password") {
+      } else if (firebaseError.code === "auth/weak-password") {
         setErrors({ password: "Password is too weak" });
       } else {
-        showAuthToast(error.message || "Failed to create account", "error");
+        const errorMessage = firebaseError.message || "Failed to create account";
+        showAuthToast(errorMessage, "error");
       }
-      
       setIsLoading(false);
     }
   };
@@ -603,8 +603,9 @@ export default function SignupPage() {
                       await signInWithGoogle();
                       showAuthToast("Successfully signed up with Google!", "success");
                       router.push("/home");
-                    } catch (error: any) {
-                      showAuthToast(error.message || "Failed to sign up with Google", "error");
+                    } catch (error: unknown) {
+                      const errorMessage = error instanceof Error ? error.message : "Failed to sign up with Google";
+                      showAuthToast(errorMessage, "error");
                       setIsLoading(false);
                     }
                   }}

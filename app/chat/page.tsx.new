@@ -24,8 +24,7 @@ import {
   uploadBytes, 
   getDownloadURL 
 } from "firebase/storage";
-// Commented out the useAuthState hook to avoid import error
-// import { useAuthState } from "react-firebase-hooks/auth";
+import { useAuthState } from "react-firebase-hooks/auth";
 import { formatDistanceToNow } from "date-fns";
 import { z } from "zod";
 
@@ -56,8 +55,7 @@ interface Chat {
 }
 
 export default function ChatPage() {
-  // Replace useAuthState with useState and useEffect to simulate authentication
-  const [user, setUser] = useState(auth.currentUser);
+  const [user] = useAuthState(auth);
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -72,14 +70,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Creating a mock user with required User interface properties
-  const currentUser: User = {
-    uid: user?.uid || 'mock-uid',
-    username: 'username',
-    displayName: user?.displayName || 'Display Name',
-    email: user?.email || 'email@example.com',
-    profileImageUrl: user?.photoURL || undefined
-  };
+  const currentUser = user as User;
   
   // Fetch all chats for current user
   useEffect(() => {
@@ -98,9 +89,7 @@ export default function ChatPage() {
       const userDetails: Record<string, User> = {};
       const usersPromises: Promise<void>[] = [];
 
-      Object.entries(snapshot.val()).forEach((entry) => {
-        const [chatId, rawChatData] = entry;
-        const chatData = rawChatData as Record<string, unknown>;
+      Object.entries(snapshot.val()).forEach(([chatId, chatData]: [string, Record<string, unknown>]) => {
         const participants = chatData.participants as Record<string, boolean> || {};
         Object.keys(participants).forEach((userId) => {
           if (userId !== currentUser.uid && !userDetails[userId]) {
@@ -121,9 +110,7 @@ export default function ChatPage() {
       Promise.all(usersPromises).then(() => {
         const userChats: Chat[] = [];
         
-        Object.entries(snapshot.val()).forEach((entry) => {
-          const [chatId, rawChatData] = entry;
-          const chatData = rawChatData as Record<string, unknown>;
+        Object.entries(snapshot.val()).forEach(([chatId, chatData]: [string, Record<string, unknown>]) => {
           const participants = chatData.participants as Record<string, boolean> || {};
           
           // Only include chats where current user is a participant
@@ -176,9 +163,7 @@ export default function ChatPage() {
       setMessages(messagesList);
       
       // Mark messages as read
-      Object.entries(messagesData).forEach((entry) => {
-        const [msgId, rawMsgData] = entry;
-        const msgData = rawMsgData as Record<string, unknown>;
+      Object.entries(messagesData).forEach(([msgId, msgData]: [string, Record<string, unknown>]) => {
         if (msgData.senderId !== currentUser.uid && (!msgData.read || !(msgData.read as Record<string, boolean>)[currentUser.uid])) {
           set(ref(db, `messages/${selectedChat}/${msgId}/read/${currentUser.uid}`), true);
         }
@@ -305,10 +290,8 @@ export default function ChatPage() {
       const chatsData = snapshot.val();
       
       // Look for an existing chat between these two users
-      const existingChat = Object.entries(chatsData).find((entry) => {
-        const [_, rawChatData] = entry;
-        const chatData = rawChatData as Record<string, unknown>;
-        const participants = chatData.participants as Record<string, boolean> || {};
+      const existingChat = Object.entries(chatsData).find(([_, chatData]) => {
+        const participants = chatData.participants || {};
         return Boolean(participants[currentUser.uid]) && Boolean(participants[userId]);
       });
 

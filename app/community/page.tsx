@@ -67,7 +67,7 @@ export default function CommunityPage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4, duration: 0.6 }}
         >
-          We're building something amazing for our community. Join our waitlist to be the first to know when we launch.
+          We&apos;re building something amazing for our community. Join our waitlist to be the first to know when we launch.
         </motion.p>
 
         <motion.div

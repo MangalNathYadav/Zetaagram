@@ -95,8 +95,9 @@ export default function LoginPage() {
       await signInWithGoogle();
       showAuthToast("Successfully logged in with Google!", "success");
       router.push("/home");
-    } catch (error: any) {
-      showAuthToast(error.message || "Failed to login with Google", "error");
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to login with Google";
+      showAuthToast(errorMessage, "error");
       setIsLoading(false);
     }
   };
@@ -140,18 +141,19 @@ export default function LoginPage() {
       await signIn(email, password);
       showAuthToast("Successfully logged in!", "success");
       router.push("/home");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Login error:", error);
       
       // Handle different Firebase auth errors
-      if (error.code === "auth/user-not-found" || error.code === "auth/wrong-password") {
+      const firebaseError = error as { code?: string; message?: string };
+      if (firebaseError.code === "auth/user-not-found" || firebaseError.code === "auth/wrong-password") {
         setErrors({ email: "Invalid email or password" });
-      } else if (error.code === "auth/invalid-email") {
+      } else if (firebaseError.code === "auth/invalid-email") {
         setErrors({ email: "Invalid email format" });
-      } else if (error.code === "auth/too-many-requests") {
+      } else if (firebaseError.code === "auth/too-many-requests") {
         setErrors({ password: "Too many failed login attempts. Try again later." });
       } else {
-        showAuthToast(error.message || "Failed to login", "error");
+        showAuthToast(firebaseError.message || "Failed to login", "error");
       }
       
       setIsLoading(false);
@@ -353,7 +355,7 @@ export default function LoginPage() {
           transition={{ delay: 0.6, duration: 0.5 }}
         >
           <p className="text-sm text-gray-600">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <motion.span whileHover={{ scale: 1.05 }}>
               <Link href="/signup" className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
                 Sign up

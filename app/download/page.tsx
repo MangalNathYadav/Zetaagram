@@ -78,7 +78,7 @@ export default function DownloadAppPage() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4, duration: 0.6 }}
         >
-          Our mobile app is coming soon! Be the first to know when it's available for download.
+          Our mobile app is coming soon! Be the first to know when it&apos;s available for download.
         </motion.p>
 
         <motion.div

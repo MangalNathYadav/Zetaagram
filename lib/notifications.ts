@@ -2,6 +2,7 @@
 
 import { db } from './firebase';
 import { ref, push, set, get, query, orderByChild, limitToLast, remove } from 'firebase/database';
+import { Notification, UserProfile } from './types';
 
 /**
  * Creates a new notification
@@ -25,18 +26,17 @@ export const createNotification = async (
     const notificationsRef = ref(db, `notifications/${recipientId}`);
     const newNotificationRef = push(notificationsRef);
     
-    const timestamp = new Date().toISOString();
     
-    const notificationData: any = {
+    const timestamp = Date.now();
+    const notificationData: Omit<Notification, 'id'> = {
       type,
       senderId,
       timestamp,
       read: false
     };
-    
     if (postId) notificationData.postId = postId;
     if (commentId) notificationData.commentId = commentId;
-    
+    await set(newNotificationRef, notificationData);
     await set(newNotificationRef, notificationData);
   } catch (error) {
     console.error("Error creating notification:", error);
@@ -58,18 +58,16 @@ export const fetchNotifications = async (userId: string, limit = 50) => {
       orderByChild('timestamp'),
       limitToLast(limit)
     );
-    
     const notificationsSnapshot = await get(notificationsQuery);
     const notificationsData = notificationsSnapshot.val() || {};
-    
     // Convert to array and add user data
     const notifications = await Promise.all(
-      Object.entries(notificationsData).map(async ([id, data]: [string, any]) => {
+      Object.entries(notificationsData).map(async ([id, rawData]) => {
+        const data = rawData as Notification;
         // Get sender data
         const senderRef = ref(db, `users/${data.senderId}`);
         const senderSnapshot = await get(senderRef);
         const senderData = senderSnapshot.val() || {};
-        
         // Get post data if it exists
         let postData = null;
         if (data.postId) {
@@ -77,40 +75,39 @@ export const fetchNotifications = async (userId: string, limit = 50) => {
           const postSnapshot = await get(postRef);
           postData = postSnapshot.val();
         }
-        
         return {
-          id,
           ...data,
           senderName: senderData.username || 'Unknown',
           senderPhoto: senderData.photoURL || null,
-          postData
+          postData,
+          notificationId: id
         };
       })
     );
-    
     // Sort notifications by timestamp (newest first)
-    return notifications.sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    return notifications.sort((a, b) =>
+      new Date(typeof b.timestamp === 'number' ? b.timestamp : Date.now()).getTime() -
+      new Date(typeof a.timestamp === 'number' ? a.timestamp : Date.now()).getTime()
     );
   } catch (error) {
     console.error("Error fetching notifications:", error);
     return [];
   }
 };
-
 /**
  * Marks a notification as read
  * @param userId - The ID of the user who owns the notification
  * @param notificationId - The ID of the notification to mark as read
  */
-export const markNotificationAsRead = async (userId: string, notificationId: string) => {
+export async function markNotificationAsRead(userId: string, notificationId: string) {
   try {
     const notificationRef = ref(db, `notifications/${userId}/${notificationId}`);
     await set(notificationRef, { read: true });
   } catch (error) {
     console.error("Error marking notification as read:", error);
   }
-};
+
+}
 
 /**
  * Deletes a notification
@@ -139,7 +136,8 @@ export const getUnreadNotificationsCount = async (userId: string): Promise<numbe
     
     // Count unread notifications
     let unreadCount = 0;
-    Object.values(notificationsData).forEach((notification: any) => {
+    Object.values(notificationsData).forEach((rawNotification) => {
+      const notification = rawNotification as Notification;
       if (!notification.read) unreadCount++;
     });
     
