@@ -25,12 +25,18 @@ export const createPost = async (
     // Optimize and convert image to Base64
     const base64Image = await optimizeImage(imageFile);
     
+    // Check if we actually got a Base64 image
+    if (!base64Image || typeof base64Image !== 'string' || !base64Image.startsWith('data:image')) {
+      throw new Error("Failed to convert image to Base64");
+    }
+    
     const timestamp = new Date().toISOString();
     
     // Create post reference
     const postsRef = ref(db, 'posts');
     const newPostRef = push(postsRef);
     
+    // Ensure we have all required fields according to database rules
     const postData = {
       userId,
       caption,
@@ -42,16 +48,32 @@ export const createPost = async (
       commentsData: {}
     };
     
+    // Create post entry
     await set(newPostRef, postData);
     
-    // Update user's posts list
-    const userPostsRef = ref(db, `users/${userId}/posts/${newPostRef.key}`);
-    await set(userPostsRef, true);
+    // Update user's posts list - make sure the user exists first
+    const userRef = ref(db, `users/${userId}`);
+    const userSnapshot = await get(userRef);
+    
+    if (!userSnapshot.exists()) {
+      // Create minimal user record if it doesn't exist
+      await set(userRef, {
+        username: 'User_' + userId.substring(0, 5),
+        email: 'user@example.com', // Placeholder
+        posts: {
+          [newPostRef.key as string]: true
+        }
+      });
+    } else {
+      // Just update the posts field
+      const userPostsRef = ref(db, `users/${userId}/posts/${newPostRef.key}`);
+      await set(userPostsRef, true);
+    }
     
     return newPostRef.key as string;
   } catch (error) {
     console.error("Error creating post:", error);
-    throw new Error("Failed to create post");
+    throw error; // Propagate the original error for better debugging
   }
 };
 

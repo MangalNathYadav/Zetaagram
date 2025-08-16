@@ -36,8 +36,9 @@
     },
     "posts": {
       ".read": "auth !== null",
+      ".write": "auth !== null",
       "$postId": {
-        ".write": "auth !== null && (!data.exists() || data.child('userId').val() === auth.uid)",
+        ".write": "auth !== null",
         ".validate": "newData.hasChildren(['userId', 'caption', 'imageUrl', 'timestamp'])",
         "userId": {
           ".validate": "newData.isString() && (!data.exists() || data.val() === newData.val())"

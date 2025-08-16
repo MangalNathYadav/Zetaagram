@@ -9,18 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import { Image as ImageIcon, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { db } from "@/lib/firebase";
-import { ref, push, set, serverTimestamp } from "firebase/database";
-
-// Function to convert file to base64
-const fileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
-  });
-};
+import { createPost } from "@/lib/database";
+import { optimizeImage } from "@/lib/imageUtils";
 
 export default function CreatePostPage() {
   const { currentUser } = useAuth();
@@ -65,7 +55,9 @@ export default function CreatePostPage() {
     }
 
     try {
-      const base64String = await fileToBase64(file);
+      setIsLoading(true);
+      // Use the optimizeImage utility from imageUtils
+      const base64String = await optimizeImage(file, 1200, 0.8);
       setSelectedImage(base64String);
       setSelectedFile(file);
     } catch (error) {
@@ -75,6 +67,8 @@ export default function CreatePostPage() {
         description: "Please try a different image",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -91,7 +85,7 @@ export default function CreatePostPage() {
       return;
     }
     
-    if (!selectedImage) {
+    if (!selectedFile) {
       toast({
         title: "No image selected",
         description: "Please select an image to post",
@@ -113,20 +107,12 @@ export default function CreatePostPage() {
       setIsLoading(true);
       setUploadProgress(0);
       
-      // Create a new post in Firebase RTDB
-      const postsRef = ref(db, 'posts');
-      const newPostRef = push(postsRef);
-      
-      const postData = {
-        uid: currentUser.uid,
-        username: currentUser.displayName || currentUser.email?.split('@')[0] || 'Anonymous',
-        userPhotoURL: currentUser.photoURL || '',
-        imageURL: selectedImage,
+      // Use the createPost function from database.ts
+      const postId = await createPost(
+        currentUser.uid,
         caption,
-        timestamp: Date.now(),
-      };
-      
-      await set(newPostRef, postData);
+        selectedFile
+      );
       
       setUploadProgress(100);
       
