@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EyeIcon, EyeOffIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, MailIcon, LockIcon, AlertCircleIcon, CheckCircleIcon, XIcon } from "lucide-react";
 import { FormInput } from "@/components/ui/form-input";
 import { SocialAuthButtons } from "@/components/ui/social-auth-buttons";
 import { AuthLayout } from "@/components/layout/auth-layout";
@@ -86,7 +86,14 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{email?: string; password?: string}>({});
   
-  const { signIn, signInWithGoogle, showAuthToast } = useAuth();
+  // Password reset state
+  const [resetPasswordModal, setResetPasswordModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetEmailError, setResetEmailError] = useState("");
+  const [resetPasswordStatus, setResetPasswordStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const resetEmailInputRef = useRef<HTMLInputElement>(null);
+  
+  const { signIn, signInWithGoogle, resetPassword, showAuthToast } = useAuth();
   const router = useRouter();
 
   const handleGoogleSignIn = async () => {
@@ -107,6 +114,49 @@ export default function LoginPage() {
       handleGoogleSignIn();
     } else {
       showAuthToast(`${provider} login coming soon!`, "info");
+    }
+  };
+  
+  // Handle password reset
+  const handleResetPassword = async () => {
+    // Reset states
+    setResetPasswordStatus("idle");
+    setResetEmailError("");
+    
+    // Validate email
+    if (!resetEmail) {
+      setResetEmailError("Email is required");
+      return;
+    }
+    
+    if (!/\S+@\S+\.\S+/.test(resetEmail)) {
+      setResetEmailError("Please enter a valid email address");
+      return;
+    }
+    
+    setResetPasswordStatus("loading");
+    
+    try {
+      await resetPassword(resetEmail);
+      setResetPasswordStatus("success");
+      setTimeout(() => {
+        setResetPasswordModal(false);
+        // Reset the states after closing
+        setTimeout(() => {
+          setResetEmail("");
+          setResetPasswordStatus("idle");
+        }, 300);
+      }, 3000);
+    } catch (error: any) {
+      console.error("Password reset error:", error);
+      setResetPasswordStatus("error");
+      
+      // Handle specific Firebase errors
+      if (error.code === "auth/user-not-found") {
+        setResetEmailError("No account found with this email address");
+      } else {
+        setResetEmailError(error.message || "Failed to send reset email");
+      }
     }
   };
 
@@ -242,12 +292,22 @@ export default function LoginPage() {
               </label>
             </div>
             <motion.div whileHover={{ scale: 1.03 }}>
-              <Link 
-                href="#" 
+              <button 
+                type="button"
+                onClick={() => {
+                  setResetPasswordModal(true);
+                  setResetEmail(email);
+                  setResetPasswordStatus("idle");
+                  setResetEmailError("");
+                  // Focus the input after dialog opens
+                  setTimeout(() => {
+                    resetEmailInputRef.current?.focus();
+                  }, 100);
+                }}
                 className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
               >
                 Forgot password?
-              </Link>
+              </button>
             </motion.div>
           </motion.div>
           
@@ -363,6 +423,138 @@ export default function LoginPage() {
             </motion.span>
           </p>
         </motion.div>
+
+        {/* Custom Reset Password Modal */}
+        {resetPasswordModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"
+              onClick={() => setResetPasswordModal(false)}
+            />
+            
+            {/* Modal Content */}
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 overflow-hidden"
+            >
+              {/* Close Button */}
+              <button 
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+                onClick={() => setResetPasswordModal(false)}
+              >
+                <XIcon className="w-5 h-5" />
+              </button>
+              
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b">
+                <h2 className="text-xl font-semibold text-gray-900">Reset your password</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Enter your email address and we&apos;ll send you instructions to reset your password.
+                </p>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                {resetPasswordStatus === "success" ? (
+                  <div className="py-6 flex flex-col items-center justify-center text-center">
+                    <motion.div
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                      className="rounded-full bg-green-100 p-3 mb-4"
+                    >
+                      <CheckCircleIcon className="h-6 w-6 text-green-600" />
+                    </motion.div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-1">Check your email</h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                      We&apos;ve sent password reset instructions to:
+                      <br />
+                      <span className="font-medium text-gray-700">{resetEmail}</span>
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Didn&apos;t receive the email? Check your spam folder or try again.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="py-2">
+                    <div className="mb-4">
+                      <Label htmlFor="resetEmail" className="text-sm font-medium mb-1">
+                        Email address
+                      </Label>
+                      <div className="relative mt-1">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                          <MailIcon className="h-5 w-5 text-gray-400" />
+                        </div>
+                        <Input
+                          id="resetEmail"
+                          type="email"
+                          ref={resetEmailInputRef}
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          placeholder="name@example.com"
+                          className={`pl-10 ${resetEmailError ? "border-red-500" : ""}`}
+                          disabled={resetPasswordStatus === "loading"}
+                        />
+                      </div>
+                      {resetEmailError && (
+                        <motion.p
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mt-1 text-sm text-red-500 flex items-center"
+                        >
+                          <AlertCircleIcon className="h-3 w-3 mr-1" /> {resetEmailError}
+                        </motion.p>
+                      )}
+                      {resetPasswordStatus === "error" && !resetEmailError && (
+                        <motion.p
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mt-1 text-sm text-red-500 flex items-center"
+                        >
+                          <AlertCircleIcon className="h-3 w-3 mr-1" /> An error occurred. Please try again.
+                        </motion.p>
+                      )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="flex justify-end space-x-2 pt-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setResetPasswordModal(false)}
+                        disabled={resetPasswordStatus === "loading"}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleResetPassword}
+                        disabled={resetPasswordStatus === "loading"}
+                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                      >
+                        {resetPasswordStatus === "loading" ? (
+                          <div className="flex items-center">
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                            <span>Sending...</span>
+                          </div>
+                        ) : (
+                          "Send instructions"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
       </motion.div>
     </AuthLayout>
   );

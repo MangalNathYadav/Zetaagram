@@ -9,7 +9,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Search, Send, ArrowLeft, Paperclip, User, MessageCircle, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { auth, db, storage } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { 
   ref, 
   get, 
@@ -23,11 +23,6 @@ import {
   serverTimestamp as firebaseServerTimestamp,
   runTransaction 
 } from "firebase/database";
-import { 
-  ref as storageRef, 
-  uploadBytes, 
-  getDownloadURL 
-} from "firebase/storage";
 // Commented out the useAuthState hook to avoid import error
 // import { useAuthState } from "react-firebase-hooks/auth";
 import { formatDistanceToNow } from "date-fns";
@@ -272,17 +267,32 @@ export default function ChatPage() {
       setError(null); // Clear any previous errors
       let imageUrl = "";
       
-      // Upload image if selected
+      // Upload image if selected - converting to base64 for RTDB
       if (selectedFile) {
         try {
           setUploadingImage(true);
-          const imageRef = storageRef(storage, `chat_images/${selectedChat}/${Date.now()}_${selectedFile.name}`);
-          const snapshot = await uploadBytes(imageRef, selectedFile);
-          imageUrl = await getDownloadURL(snapshot.ref);
+          
+          // Convert file to base64
+          const base64Image = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(selectedFile);
+          });
+          
+          // Validate file size (max 2MB after base64 conversion)
+          if (base64Image.length > 2800000) {
+            setError("Image is too large. Please select a smaller image (max 2MB).");
+            setUploadingImage(false);
+            return;
+          }
+          
+          // Use base64 string directly
+          imageUrl = base64Image;
           setSelectedFile(null);
         } catch (uploadError) {
-          console.error("Error uploading image:", uploadError);
-          setError("Failed to upload image. Please try again.");
+          console.error("Error processing image:", uploadError);
+          setError("Failed to process image. Please try again.");
           setUploadingImage(false);
           return;
         }

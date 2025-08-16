@@ -4,13 +4,14 @@ import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { Heart, MessageCircle, Bookmark, Share2, MoreHorizontal } from "lucide-react";
-import { motion } from "framer-motion";
+import { Heart, MessageCircle, Bookmark, Share2, MoreHorizontal, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "./button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toggleLikePost } from "@/lib/database";
 import { createNotification } from "@/lib/notifications";
 import { useAuth } from "@/contexts/auth-context";
+import { useLoading } from "@/contexts/loading-context";
 
 interface Post {
   id: string;
@@ -31,11 +32,13 @@ interface PostCardProps {
 
 const PostCard = ({ post }: PostCardProps) => {
   const { currentUser } = useAuth();
+  const { setLoadingWithTimeout } = useLoading();
   const [liked, setLiked] = useState(false);
   const [saved, setSaved] = useState(false);
   const [likesCount, setLikesCount] = useState(post.likes || 0);
   const [showFullCaption, setShowFullCaption] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   // Check if post is liked by current user
   useEffect(() => {
@@ -90,7 +93,8 @@ const PostCard = ({ post }: PostCardProps) => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className="bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm"
+      transition={{ duration: 0.3 }}
+      className="bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm border"
     >
       {/* Post header */}
       <div className="p-4 flex items-center justify-between">
@@ -112,13 +116,23 @@ const PostCard = ({ post }: PostCardProps) => {
       </div>
 
       {/* Post image */}
-      <div className="relative aspect-square">
+      <div className="relative aspect-square bg-gray-100">
+        {!imageLoaded && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+          </div>
+        )}
+        
         {post.imageUrl.startsWith('data:') ? (
           // For base64 images
-          <img
+          <motion.img
             src={post.imageUrl}
             alt={`Post by ${post.username}`}
-            className="w-full h-full object-cover"
+            className={`w-full h-full object-cover ${!imageLoaded ? 'opacity-0' : 'opacity-100'}`}
+            onLoad={() => setImageLoaded(true)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: imageLoaded ? 1 : 0 }}
+            transition={{ duration: 0.5 }}
           />
         ) : (
           // For URL images
@@ -126,9 +140,10 @@ const PostCard = ({ post }: PostCardProps) => {
             src={post.imageUrl}
             alt={`Post by ${post.username}`}
             fill
-            className="object-cover"
+            className={`object-cover transition-opacity duration-300 ${!imageLoaded ? 'opacity-0' : 'opacity-100'}`}
             sizes="(max-width: 768px) 100vw, 600px"
             priority
+            onLoadingComplete={() => setImageLoaded(true)}
           />
         )}
       </div>
@@ -141,12 +156,35 @@ const PostCard = ({ post }: PostCardProps) => {
               onClick={handleLike} 
               variant="ghost" 
               size="icon" 
-              className="h-9 w-9 rounded-full"
+              disabled={isSubmitting}
+              className="h-9 w-9 rounded-full relative"
             >
-              <Heart 
-                className={`h-6 w-6 ${liked ? "fill-red-500 text-red-500" : ""}`} 
-                strokeWidth={liked ? 0 : 2}
-              />
+              <AnimatePresence mode="wait">
+                {isSubmitting ? (
+                  <motion.div
+                    key="loading"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="heart"
+                    initial={{ scale: liked ? 1 : 0.8 }}
+                    animate={{ scale: 1 }}
+                    exit={{ scale: 0.8 }}
+                    whileTap={{ scale: 0.85 }}
+                  >
+                    <Heart 
+                      className={`h-6 w-6 ${liked ? "fill-red-500 text-red-500" : ""}`} 
+                      strokeWidth={liked ? 0 : 2}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </Button>
             <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
               <MessageCircle className="h-6 w-6" />

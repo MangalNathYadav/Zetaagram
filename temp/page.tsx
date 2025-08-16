@@ -403,7 +403,7 @@ export default function ProfilePage() {
                       <>
                         <Button 
                           variant="default" 
-                          onClick={() => router.push('/edit-profile')}
+                          onClick={() => router.push('/settings')}
                           className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white"
                         >
                           <Edit size={16} className="mr-1.5" />

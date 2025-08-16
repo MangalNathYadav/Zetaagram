@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "storage": {
+      "rules": {
+        "profile_images/{userId}": {
+          ".read": "auth !== null",
+          ".write": "auth !== null && auth.uid === userId",
+          ".validate": "newData.size < 5 * 1024 * 1024 && newData.contentType.matches('image/.*')"
+        },
+        "post_images/{postId}": {
+          ".read": "auth !== null",
+          ".write": "auth !== null && auth.uid === resource.data.userId"
+        }
+      }
+    }
+  }
+}

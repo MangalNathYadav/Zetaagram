@@ -14,10 +14,19 @@
           ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$/)"
         },
         "photoURL": {
-          ".validate": "newData.isString() || newData.val() === null"
+          ".validate": "!newData.exists() || newData.isString() || newData.val() === null || newData.val().length <= 2800000"
         },
         "bio": {
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 150)"
+        },
+        "website": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 100)"
+        },
+        "location": {
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 30)"
+        },
+        "lastUpdated": {
+          ".validate": "newData.isNumber() || !newData.exists()"
         },
         "posts": {
           "$postId": {
@@ -125,7 +134,7 @@
             ".validate": "newData.isNumber()"
           },
           "imageUrl": {
-            ".validate": "!newData.exists() || newData.isString()"
+            ".validate": "!newData.exists() || newData.isString() || newData.val().length <= 2800000"
           }
         }
       }

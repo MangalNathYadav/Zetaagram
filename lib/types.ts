@@ -62,4 +62,10 @@ export interface UserProfile {
   profileImageUrl?: string;
   bio?: string;
   website?: string;
+  location?: string;
+  lastUpdated?: number;
+  createdAt?: number;
+  followers?: Record<string, boolean>;
+  following?: Record<string, boolean>;
+  postsCount?: number;
 }

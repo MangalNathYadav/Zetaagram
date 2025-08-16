@@ -1,0 +1,642 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth-context";
+import { UserProfile } from "@/lib/types";
+import AppLayout from "@/components/layout/app-layout";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger
+} from "@/components/ui/tabs";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Label } from "@/components/ui/label";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Settings, User, Lock, Bell, Shield, LogOut, ChevronLeft, Camera, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ref, update } from "firebase/database";
+import { db } from "@/lib/firebase";
+
+// Form validation schema for profile
+// Form validation has been moved to edit-profile page
+
+export default function SettingsPage() {
+  const { currentUser, userData, updateUserProfile, showAuthToast, logout } = useAuth();
+  const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("account");
+
+  // Initialize form with current user data
+  const form = useForm({
+    resolver: zodResolver(profileFormSchema),
+    defaultValues: {
+      displayName: "",
+      username: "",
+      bio: "",
+      website: "",
+      location: "",
+    },
+  });
+
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!currentUser) {
+      router.push('/login');
+    }
+  }, [currentUser, router]);
+
+  // Populate form when user data is available
+  useEffect(() => {
+    if (userData) {
+      form.reset({
+        displayName: userData.displayName || "",
+        username: userData.username || "",
+        bio: userData.bio || "",
+        website: userData.website || "",
+        location: userData.location || "",
+      });
+
+      if (userData.photoURL) {
+        setProfileImagePreview(userData.photoURL);
+      }
+    }
+  }, [userData, form]);
+
+  // Handle profile image change - now directly converting to base64 for RTDB
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file size (max 2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        showAuthToast("Image must be less than 2MB", "error");
+        return;
+      }
+      
+      setProfileImageFile(file);
+
+      // Create preview and prepare for base64 storage in RTDB
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handle form submission
+  const onSubmit = async (values: z.infer<typeof profileFormSchema>) => {
+    if (!currentUser) return;
+
+    try {
+      setIsSubmitting(true);
+
+      // Use base64 image data directly in RTDB
+      let photoURL = userData?.photoURL;
+      if (profileImagePreview && profileImagePreview !== photoURL) {
+        // Base64 image is already in profileImagePreview
+        photoURL = profileImagePreview;
+      }
+
+      // Update profile data with properly typed profile data
+      const profileUpdate: Partial<UserProfile> = {
+        displayName: values.displayName,
+        username: values.username,
+        bio: values.bio,
+        photoURL,
+      };
+
+      // Add website and location fields
+      if (typeof values.website === 'string') {
+        profileUpdate.website = values.website;
+      }
+      
+      if (typeof values.location === 'string') {
+        profileUpdate.location = values.location;
+      }
+
+      // Update lastUpdated timestamp
+      profileUpdate.lastUpdated = Date.now();
+
+      // Update user profile in database and auth context
+      await updateUserProfile(profileUpdate);
+      showAuthToast("Profile updated successfully", "success");
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      showAuthToast("Failed to update profile", "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+    } catch (error) {
+      console.error("Error logging out:", error);
+      showAuthToast("Failed to log out", "error");
+    }
+  };
+
+  return (
+    <AppLayout hideHeader>
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="container max-w-md py-4 md:py-8 px-2"
+      >
+        {/* Back Button - Mobile Friendly */}
+        <motion.div 
+          initial={{ x: -20, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ delay: 0.1, type: "spring", stiffness: 300 }}
+          className="flex items-center mb-6"
+        >
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => router.back()}
+            className="flex items-center gap-1 hover:bg-transparent p-0 group"
+          >
+            <ChevronLeft className="w-5 h-5 group-hover:translate-x-[-2px] transition-transform" />
+            <span className="ml-1 group-hover:text-blue-600 transition-colors">Back to profile</span>
+          </Button>
+        </motion.div>
+        
+        {/* Main Content */}
+        <motion.div 
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.2, type: "spring", stiffness: 300, damping: 25 }}
+          className="flex flex-col gap-4"
+        >
+          {/* Settings Card */}
+          <Card className="shadow-md border-0 overflow-hidden bg-gradient-to-br from-white to-gray-50">
+            <CardHeader className="pb-2 bg-gradient-to-r from-gray-50 to-white">
+              <CardTitle className="text-xl font-bold text-gray-800">Settings</CardTitle>
+              <CardDescription className="text-gray-500">
+                Manage your account settings and preferences
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Tabs 
+                value={activeTab} 
+                onValueChange={setActiveTab}
+                className="w-full"
+              >
+                <TabsList className="flex flex-col w-full space-y-0 p-0 bg-transparent">
+                  <motion.div 
+                    whileHover={{ backgroundColor: "rgba(243, 244, 246, 0.8)" }}
+                    onClick={() => router.push('/edit-profile')}
+                    className="cursor-pointer"
+                  >
+                    <div 
+                      className="w-full justify-start px-4 py-3 border-b text-left rounded-none flex items-center"
+                    >
+                      <User className="mr-3 h-5 w-5 text-gray-500" />
+                      <span className="font-medium">Edit Profile</span>
+                    </div>
+                  </motion.div>
+                  
+                  <motion.div whileHover={{ backgroundColor: "rgba(243, 244, 246, 0.8)" }}>
+                    <TabsTrigger 
+                      value="account"
+                      className="w-full justify-start px-4 py-3 border-b text-left rounded-none data-[state=active]:bg-blue-50/50 data-[state=active]:text-blue-600 transition-all duration-200"
+                    >
+                      <div className="flex items-center">
+                        <Settings className="mr-3 h-5 w-5 text-gray-500" />
+                        <span className="font-medium">Account</span>
+                      </div>
+                    </TabsTrigger>
+                  </motion.div>
+                  
+                  <motion.div whileHover={{ backgroundColor: "rgba(243, 244, 246, 0.8)" }}>
+                    <TabsTrigger 
+                      value="password" 
+                      className="w-full justify-start px-4 py-3 border-b text-left rounded-none data-[state=active]:bg-blue-50/50 data-[state=active]:text-blue-600 transition-all duration-200"
+                    >
+                      <div className="flex items-center">
+                        <Lock className="mr-3 h-5 w-5 text-gray-500" />
+                        <span className="font-medium">Password</span>
+                      </div>
+                    </TabsTrigger>
+                  </motion.div>
+                  
+                  <motion.div whileHover={{ backgroundColor: "rgba(243, 244, 246, 0.8)" }}>
+                    <TabsTrigger 
+                      value="notifications" 
+                      className="w-full justify-start px-4 py-3 border-b text-left rounded-none data-[state=active]:bg-blue-50/50 data-[state=active]:text-blue-600 transition-all duration-200"
+                    >
+                      <div className="flex items-center">
+                        <Bell className="mr-3 h-5 w-5 text-gray-500" />
+                        <span className="font-medium">Notifications</span>
+                      </div>
+                    </TabsTrigger>
+                  </motion.div>
+                  
+                  <motion.div whileHover={{ backgroundColor: "rgba(243, 244, 246, 0.8)" }}>
+                    <TabsTrigger 
+                      value="privacy" 
+                      className="w-full justify-start px-4 py-3 text-left rounded-none data-[state=active]:bg-blue-50/50 data-[state=active]:text-blue-600 transition-all duration-200"
+                    >
+                      <div className="flex items-center">
+                        <Shield className="mr-3 h-5 w-5 text-gray-500" />
+                        <span className="font-medium">Privacy</span>
+                      </div>
+                    </TabsTrigger>
+                  </motion.div>
+                  </TabsList>
+                </Tabs>
+              </CardContent>
+              <div className="p-4 pb-2">
+                <Button 
+                  variant="outline" 
+                  onClick={handleLogout}
+                  className="w-full text-red-500 border border-red-200 hover:text-red-600 hover:bg-red-50 transition-colors justify-center py-5"
+                >
+                  <div className="flex items-center">
+                    <LogOut className="mr-2 h-5 w-5" />
+                    Log out
+                  </div>
+                </Button>
+              </div>
+            </Card>
+          
+            {/* Content Area */}
+            <div className="mt-4">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                {/* Profile editing moved to /edit-profile page */}
+                        <div className="flex flex-col items-center space-y-4 mb-8">
+                          <motion.div 
+                            className="relative group"
+                            whileHover={{ scale: 1.02 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                          >
+                            <div className="w-32 h-32 rounded-full overflow-hidden bg-gradient-to-r from-blue-500 to-purple-500 shadow-lg ring-2 ring-white">
+                              {profileImagePreview ? (
+                                <motion.img 
+                                  src={profileImagePreview} 
+                                  alt={userData?.displayName || "Profile"} 
+                                  className="w-full h-full object-cover"
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  transition={{ duration: 0.3 }}
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-white text-4xl">
+                                  {userData?.displayName?.charAt(0).toUpperCase() || userData?.username?.charAt(0).toUpperCase() || "T"}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <Label 
+                              htmlFor="profileImage" 
+                              className="absolute bottom-0 right-0 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-3 rounded-full cursor-pointer shadow-xl hover:shadow-2xl transition-all hover:scale-110 border-2 border-white"
+                            >
+                              <Camera size={18} />
+                            </Label>
+                            
+                            <motion.div
+                              className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full text-white opacity-0 group-hover:opacity-100 cursor-pointer transition-all duration-200"
+                              whileHover={{ scale: 1.05 }}
+                            >
+                              <p className="text-sm font-medium">Change Photo</p>
+                            </motion.div>
+                            
+                            <Input 
+                              id="profileImage"
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleImageChange}
+                            />
+                          </motion.div>
+                          <div className="text-center">
+                            <motion.p 
+                              className="text-lg font-semibold"
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: 0.2 }}
+                            >
+                              {userData?.displayName}
+                            </motion.p>
+                            <motion.p 
+                              className="text-sm text-muted-foreground"
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: 0.3 }}
+                            >
+                              @{userData?.username}
+                            </motion.p>
+                          </div>
+                        </div>
+
+                        {/* Display Name */}
+                        <FormField
+                          control={form.control}
+                          name="displayName"
+                          render={({ field }: { field: any }) => (
+                            <FormItem className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 transition-all hover:shadow-sm">
+                              <FormLabel className="text-sm font-medium">Name</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  placeholder="Your name" 
+                                  {...field} 
+                                  className="border-0 border-b focus-visible:ring-0 focus-visible:border-primary rounded-none px-0 bg-transparent" 
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                This is your public display name.
+                              </FormDescription>
+                              <FormMessage className="text-xs" />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Username */}
+                        <FormField
+                          control={form.control}
+                          name="username"
+                          render={({ field }: { field: any }) => (
+                            <FormItem className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 transition-all hover:shadow-sm">
+                              <FormLabel className="text-sm font-medium">Username</FormLabel>
+                              <div className="flex items-center">
+                                <span className="text-gray-500 mr-1">@</span>
+                                <FormControl>
+                                  <Input 
+                                    placeholder="username" 
+                                    {...field} 
+                                    className="border-0 border-b focus-visible:ring-0 focus-visible:border-primary rounded-none px-0 bg-transparent" 
+                                  />
+                                </FormControl>
+                              </div>
+                              <FormDescription className="text-xs">
+                                Your unique username for your profile URL.
+                              </FormDescription>
+                              <FormMessage className="text-xs" />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Bio */}
+                        <FormField
+                          control={form.control}
+                          name="bio"
+                          render={({ field }: { field: any }) => (
+                            <FormItem className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 transition-all hover:shadow-sm">
+                              <FormLabel className="text-sm font-medium">Bio</FormLabel>
+                              <FormControl>
+                                <Textarea 
+                                  placeholder="Tell us a little about yourself"
+                                  className="resize-none border-0 border-b focus-visible:ring-0 focus-visible:border-primary rounded-none px-0 bg-transparent min-h-[100px]"
+                                  {...field} 
+                                />
+                              </FormControl>
+                              <FormDescription className="text-xs">
+                                <div className="flex justify-between items-center mt-1">
+                                  <span>Brief description for your profile.</span>
+                                  <span className={`${field.value && field.value.length > 140 ? 'text-amber-500' : 'text-gray-500'} font-medium`}>
+                                    {field.value?.length || 0}/150
+                                  </span>
+                                </div>
+                              </FormDescription>
+                              <FormMessage className="text-xs" />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Website */}
+                        <FormField
+                          control={form.control}
+                          name="website"
+                          render={({ field }: { field: any }) => (
+                            <FormItem className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 transition-all hover:shadow-sm">
+                              <FormLabel className="text-sm font-medium">Website</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                                      <circle cx="12" cy="12" r="10"></circle>
+                                      <line x1="2" y1="12" x2="22" y2="12"></line>
+                                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                                    </svg>
+                                  </div>
+                                  <Input 
+                                    placeholder="yourwebsite.com" 
+                                    {...field} 
+                                    className="pl-10 bg-white dark:bg-gray-800 border rounded-md" 
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormDescription className="text-xs mt-1">
+                                Your personal or business website.
+                              </FormDescription>
+                              <FormMessage className="text-xs" />
+                            </FormItem>
+                          )}
+                        />
+
+                        {/* Location */}
+                        <FormField
+                          control={form.control}
+                          name="location"
+                          render={({ field }: { field: any }) => (
+                            <FormItem className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 transition-all hover:shadow-sm">
+                              <FormLabel className="text-sm font-medium">Location</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                                      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                      <circle cx="12" cy="10" r="3"></circle>
+                                    </svg>
+                                  </div>
+                                  <Input 
+                                    placeholder="City, Country" 
+                                    {...field} 
+                                    className="pl-10 bg-white dark:bg-gray-800 border rounded-md" 
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormDescription className="text-xs mt-1">
+                                Where you're based.
+                              </FormDescription>
+                              <FormMessage className="text-xs" />
+                            </FormItem>
+                          )}
+                        />
+
+                        <div className="mt-8 pt-6 border-t flex flex-col gap-3">
+                          <Button 
+                            type="submit" 
+                            disabled={isSubmitting} 
+                            className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white py-6"
+                          >
+                            <AnimatePresence mode="wait">
+                              {isSubmitting ? (
+                                <motion.div
+                                  key="loading"
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  exit={{ opacity: 0 }}
+                                  className="flex items-center justify-center"
+                                >
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  <span>Saving...</span>
+                                </motion.div>
+                              ) : (
+                                <motion.div
+                                  key="save"
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  exit={{ opacity: 0 }}
+                                >
+                                  Save Changes
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </Button>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            onClick={() => router.back()} 
+                            className="w-full border-gray-300"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    </Form>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Account Tab */}
+              <TabsContent value="account">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Account Settings</CardTitle>
+                    <CardDescription>
+                      Manage your account details and preferences
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                      Email: {userData?.email}
+                    </p>
+                    <div className="mt-6 space-y-4">
+                      <div className="border rounded-md p-4">
+                        <h3 className="font-medium">Account Preferences</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Manage your account settings and language preferences
+                        </p>
+                        <Button variant="outline" size="sm" className="mt-4">
+                          Update Preferences
+                        </Button>
+                      </div>
+                      <div className="border rounded-md p-4">
+                        <h3 className="font-medium">Account Data</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          View and download your account data
+                        </p>
+                        <Button variant="outline" size="sm" className="mt-4">
+                          Download Data
+                        </Button>
+                      </div>
+                      <div className="border rounded-md p-4 border-destructive/20">
+                        <h3 className="font-medium text-destructive">Danger Zone</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Permanently delete your account and all your data
+                        </p>
+                        <Button variant="destructive" size="sm" className="mt-4">
+                          Delete Account
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Other tab contents - placeholder for now */}
+              <TabsContent value="password">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Password Settings</CardTitle>
+                    <CardDescription>
+                      Change your password and security settings
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground">
+                      Password settings will be implemented in a future update.
+                    </p>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="notifications">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Notification Settings</CardTitle>
+                    <CardDescription>
+                      Manage your notification preferences
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground">
+                      Notification settings will be implemented in a future update.
+                    </p>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="privacy">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Privacy Settings</CardTitle>
+                    <CardDescription>
+                      Control your privacy and security options
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground">
+                      Privacy settings will be implemented in a future update.
+                    </p>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AppLayout>
+  );
+}

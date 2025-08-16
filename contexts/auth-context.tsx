@@ -9,7 +9,8 @@ import {
   signInWithPopup,
   signOut,
   onAuthStateChanged,
-  updateProfile
+  updateProfile,
+  sendPasswordResetEmail
 } from "firebase/auth";
 import { ref, set, get } from "firebase/database";
 import { auth, googleProvider, db } from "@/lib/firebase";
@@ -20,6 +21,8 @@ interface UserProfile {
   username?: string;
   photoURL?: string;
   bio?: string;
+  website?: string;
+  location?: string;
 }
 
 interface UserData extends UserProfile {
@@ -30,6 +33,9 @@ interface UserData extends UserProfile {
   postsCount?: number;
   lastLogin?: number;
   createdAt?: number;
+  website?: string;
+  location?: string;
+  lastUpdated?: number;
 }
 
 interface AuthContextType {
@@ -39,6 +45,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, profileData: UserProfile) => Promise<UserCredential>;
   signIn: (email: string, password: string) => Promise<UserCredential>;
   signInWithGoogle: () => Promise<UserCredential>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   updateUserProfile: (profileData: Partial<UserProfile>) => Promise<void>;
   followUser: (userId: string) => Promise<void>;
@@ -284,6 +291,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
   
+  // Reset password
+  const resetPassword = async (email: string) => {
+    if (!email) {
+      throw new Error("Email is required");
+    }
+    
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error) {
+      console.error("Error sending password reset email:", error);
+      throw error;
+    }
+  };
+
   // Sign out
   const logout = async () => {
     await signOut(auth);
@@ -323,6 +344,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signIn,
     signInWithGoogle,
+    resetPassword,
     logout,
     updateUserProfile,
     followUser,
