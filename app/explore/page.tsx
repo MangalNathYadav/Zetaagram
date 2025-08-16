@@ -12,6 +12,7 @@ import Image from "next/image";
 import { useAuth } from "@/contexts/auth-context";
 import { db } from "@/lib/firebase";
 import { ref, get, query, limitToLast, orderByChild } from "firebase/database";
+import PostModal from "@/components/PostModal";
 
 // Type definitions
 interface Post {
@@ -75,6 +76,8 @@ export default function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMode, setSearchMode] = useState(false);
   const [searchType, setSearchType] = useState<'all' | 'posts' | 'users'>('all');
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const { currentUser } = useAuth();
   
   const POSTS_PER_PAGE = 12;
@@ -511,33 +514,35 @@ export default function ExplorePage() {
             key={post.id}
             className="relative aspect-square rounded-md overflow-hidden"
             variants={itemVariants}
+            onClick={() => {
+              setSelectedPost(post);
+              setIsModalOpen(true);
+            }}
           >
-            <Link href={`/post/${post.id}`}>
-              <div className="group relative w-full h-full">
-                <Image
-                  src={post.imageUrl}
-                  alt={post.caption}
-                  fill
-                  sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
-                  className="object-cover transition-all duration-200 group-hover:brightness-75"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-200" />
-                
-                {/* Post info on hover */}
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <div className="flex items-center space-x-3 text-white">
-                    <div className="flex items-center">
-                      <Heart className="w-5 h-5 mr-1 fill-white" />
-                      <span className="font-bold">{post.likes}</span>
-                    </div>
-                    <div className="flex items-center">
-                      <MessageCircle className="w-5 h-5 mr-1" />
-                      <span className="font-bold">{post.comments}</span>
-                    </div>
+            <div className="group relative w-full h-full cursor-pointer">
+              <Image
+                src={post.imageUrl}
+                alt={post.caption}
+                fill
+                sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 25vw"
+                className="object-cover transition-all duration-200 group-hover:brightness-75"
+              />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-200" />
+              
+              {/* Post info on hover */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <div className="flex items-center space-x-3 text-white">
+                  <div className="flex items-center">
+                    <Heart className="w-5 h-5 mr-1 fill-white" />
+                    <span className="font-bold">{post.likes}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <MessageCircle className="w-5 h-5 mr-1" />
+                    <span className="font-bold">{post.comments}</span>
                   </div>
                 </div>
               </div>
-            </Link>
+            </div>
           </motion.div>
         ))}
         
@@ -574,6 +579,14 @@ export default function ExplorePage() {
           </p>
         </div>
       )}
+      
+      {/* Post Modal */}
+      <PostModal
+        post={selectedPost}
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        currentUserId={currentUser?.uid}
+      />
     </AppLayout>
   );
 }
